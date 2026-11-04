@@ -23,6 +23,10 @@ A CSV with these columns:
   d_labitems, icustays, chartevents, d_items
 - `_row_id`: the value of the `_row_id` column for the row you are flagging
 
+Every `(table, _row_id)` pair must identify an existing row in the supplied
+dataset. A submission containing any unknown table or nonexistent row ID fails,
+even if it otherwise meets the recall and precision thresholds.
+
 ## Evaluation
 
 The pass criteria are recall == 1.0 over the errors and precision >= 0.1

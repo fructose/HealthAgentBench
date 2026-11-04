@@ -6,7 +6,8 @@ Each labeled error has a ``cluster_id``. A cluster is "caught" when the agent
 flags any single ``(table, _row_id)`` belonging to it.
 
 Pass criterion (binary):
-    A trial passes iff ``recall == 1.0`` AND ``precision >= 0.1``.
+    Every submitted reference must identify a real row in the trusted dataset,
+    AND ``recall == 1.0`` AND ``precision >= 0.1``.
     The agent must catch every injected error cluster; the precision
     floor is intentionally low (10%) because the prompt is intentionally
     generic ("flag all data-entry errors"), so honest false positives
@@ -33,17 +34,26 @@ Output files:
 
 from __future__ import annotations
 
-import json
 import csv
+import gzip
+import hashlib
+import json
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
 
-
 REQUIRED_COLUMNS = {"table", "_row_id"}
+VERIFIER_VERSION = "row-validity-v1"
+ROW_INDEX = Path(__file__).resolve().parent / "row_ids.csv.gz"
+ROW_MANIFEST = Path(__file__).resolve().parent / "row_manifest.json"
+TABLES = {
+    "patients", "admissions", "labevents", "prescriptions",
+    "d_labitems", "icustays", "chartevents", "d_items",
+}
 
-# Binary pass criterion. A trial passes iff every injected cluster is caught
+# Binary pass criterion additionally requires valid source-row references.
+# A trial passes iff every injected cluster is caught
 # (recall == 1.0) AND at least a tenth of the flagged rows are genuine errors
 # (precision >= PRECISION_THRESHOLD). Both halves matter: an audit that reports
 # thousands of rows to find a few hundred is not a usable audit, and recall
@@ -115,6 +125,56 @@ def _read_turn_count() -> int | None:
     return None
 
 
+def _sha256(path: Path) -> str:
+    with path.open("rb") as handle:
+        return hashlib.file_digest(handle, "sha256").hexdigest()
+
+
+def _invalid_row_count(
+    flagged_set: set[tuple[str, str]],
+    labels: pd.DataFrame,
+    labels_csv: Path,
+    row_index: Path,
+    row_manifest: Path,
+) -> int:
+    """Check exact membership against verifier-owned, versioned identifiers.
+
+    Stream the index and retain only requested/labelled matches, rather than
+    loading all 800k identifiers into memory. Never trust an agent-supplied
+    dataset or silently remove invalid references before computing precision.
+    """
+    metadata = json.loads(row_manifest.read_text())
+    if metadata["schema_version"] != 1 or set(metadata["row_counts"]) != TABLES:
+        raise ValueError("Unsupported row manifest schema or tables")
+    if _sha256(row_index) != metadata["row_index_sha256"]:
+        raise ValueError("Row index checksum does not match its manifest")
+    if _sha256(labels_csv) != metadata["labels_sha256"]:
+        raise ValueError("Labels and row manifest belong to different task revisions")
+
+    labeled_rows = set(zip(labels["table"], labels["_row_id"]))
+    requested = flagged_set | labeled_rows
+    found: set[tuple[str, str]] = set()
+    counts = dict.fromkeys(TABLES, 0)
+    with gzip.open(row_index, "rt", encoding="utf-8", newline="") as handle:
+        reader = csv.reader(handle, strict=True)
+        if next(reader, None) != ["table", "_row_id"]:
+            raise ValueError("Invalid row index header")
+        for row in reader:
+            if len(row) != 2 or row[0] not in TABLES or not row[1]:
+                raise ValueError("Invalid row index record")
+            table, row_id = row
+            counts[table] += 1
+            key = (table, row_id)
+            if key in requested:
+                found.add(key)
+    if counts != metadata["row_counts"]:
+        raise ValueError("Row index counts do not match its manifest")
+    if not labeled_rows <= found:
+        # Do not disclose which expected label is missing in shared logs.
+        raise ValueError("Gold labels reference rows absent from the trusted index")
+    return len(flagged_set - found)
+
+
 def _cluster_recall(
     labels: pd.DataFrame, flagged_set: set[tuple[str, str]]
 ) -> tuple[int, int]:
@@ -134,16 +194,20 @@ def evaluate(
     labels_csv: Path,
     log_dir: Path,
     turn_count_override: int | None = None,
+    *,
+    row_index: Path = ROW_INDEX,
+    row_manifest: Path = ROW_MANIFEST,
 ) -> float:
     """Compute binary reward from cluster-level recall + row-level precision.
 
-    Pass criterion: ``recall == 1.0 AND precision >= 0.1``.
+    Pass criterion: valid row references, recall == 1.0, precision >= 0.1.
 
     Returns the binary reward (1.0 or 0.0). Writes ``metrics.json`` and
     ``reward.txt``. Never raises on bad agent input — writes
     ``verifier_error.txt`` and returns 0.0.
     """
     log_dir.mkdir(parents=True, exist_ok=True)
+    (log_dir / "verifier_error.txt").unlink(missing_ok=True)
 
     labels = _load_labels(labels_csv)
     submission = _load_submission(submission_csv, log_dir)
@@ -156,6 +220,20 @@ def evaluate(
         submission["_row_id"] = submission["_row_id"].astype(str)
         flagged_set = set(zip(submission["table"], submission["_row_id"]))
         n_flagged = len(flagged_set)
+
+    reference_error: str | None = None
+    n_invalid_rows: int | None = None
+    try:
+        n_invalid_rows = _invalid_row_count(
+            flagged_set, labels, labels_csv, row_index, row_manifest
+        )
+    except (OSError, ValueError, KeyError, TypeError, EOFError, csv.Error) as exc:
+        reference_error = f"Trusted row index validation failed: {exc}"
+        (log_dir / "verifier_error.txt").write_text(reference_error + "\n")
+    if n_invalid_rows:
+        reference_error = f"Submission contains {n_invalid_rows} nonexistent row references"
+        (log_dir / "verifier_error.txt").write_text(reference_error + "\n")
+    submission_valid = submission is not None and n_flagged > 0 and reference_error is None
 
     # Recall is measured over the injected clusters only.
     required = labels[labels["error_family"] != PRECISION_ONLY_FAMILY]
@@ -191,11 +269,15 @@ def evaluate(
     else:
         turn_count = _read_turn_count()
 
-    # Binary pass criterion: recall == 1.0 AND precision >= 0.1.
-    passed = (recall >= RECALL_THRESHOLD) and (precision >= PRECISION_THRESHOLD)
+    # Invalid references invalidate the audit even when old thresholds pass.
+    passed = submission_valid and (recall >= RECALL_THRESHOLD) and (precision >= PRECISION_THRESHOLD)
     reward = 1.0 if passed else 0.0
 
     metrics: dict[str, Any] = {
+        "verifier_version": VERIFIER_VERSION,
+        "submission_valid": submission_valid,
+        "n_invalid_row_references": n_invalid_rows,
+        "reference_error": reference_error,
         "reward": reward,
         "n_tasks": 1,
         "n_pass": int(passed),
@@ -212,8 +294,8 @@ def evaluate(
         "n_flagged_rows": n_flagged,
         "n_useful_flagged_rows": n_useful_rows,
         "n_preexisting_flagged_rows": len(preexisting_rows & flagged_set),
-        "n_label_rows": int(len(required)),
-        "n_preexisting_label_rows": int(len(preexisting)),
+        "n_label_rows": len(required),
+        "n_preexisting_label_rows": len(preexisting),
         "turn_count": turn_count,
     }
     (log_dir / "metrics.json").write_text(json.dumps(metrics, indent=2))

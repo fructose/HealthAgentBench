@@ -1,0 +1,26 @@
+{
+  "data_sha256": {
+    "admissions.csv.gz": "276fe00cf84b9ec35307d526b6abff16fcf5ed0946f0cde0460b9ff84d6fb7fd",
+    "chartevents.csv.gz": "d6d673cb4367cd5b0d7fee94eee02423fe8f2052bb8ee9aae059897191a3528a",
+    "d_items.csv.gz": "838e1793146f232b529f80efb57738f70b612deaf8cd81f328e18e143bae2a4f",
+    "d_labitems.csv.gz": "fa4118ab63a0434f8374243dae56ad0aaa82e837e57fd2d6b2090bf08917f9ec",
+    "icustays.csv.gz": "2b83b1f9d7b24287ceffb2973f6276e414e643b319bfb75d74794a4a9af5cb4e",
+    "labevents.csv.gz": "033c322c18ec4d23251c5096e4cca260b943897d9581037e7edde9f0d044baab",
+    "patients.csv.gz": "34f8eb61510d9f1fe5ac8a58f5fa10cb76202a0f6e994160dfbdcbb53e459418",
+    "prescriptions.csv.gz": "531788bfcdb36a68fa14accc96b3e5028ac2fe51bc4f5a7407df7e6e3845d2d3"
+  },
+  "dataset_version": "2.0",
+  "labels_sha256": "29a15858ba89b7a574dee9ead741538d57bfa63eb2697d9f3bf52b6e900f93d5",
+  "row_counts": {
+    "admissions": 275,
+    "chartevents": 668862,
+    "d_items": 4014,
+    "d_labitems": 1622,
+    "icustays": 140,
+    "labevents": 107727,
+    "patients": 100,
+    "prescriptions": 18087
+  },
+  "row_index_sha256": "f86ee562916db14fe90221ee88496c3878e491009e7318fb0d0ca0ebed010546",
+  "schema_version": 1
+}

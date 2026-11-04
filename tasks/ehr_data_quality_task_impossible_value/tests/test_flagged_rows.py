@@ -14,7 +14,7 @@ sys.dont_write_bytecode = True
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from scoring import evaluate  # noqa: E402
+from scoring import evaluate
 
 SUBMISSION = Path("/workspace/submission/flagged_rows.csv")
 LABELS = Path(__file__).resolve().parent / "labels.csv"
@@ -51,6 +51,11 @@ def test_submission_is_usable(metrics: dict) -> None:
     from a submission that simply found nothing.
     """
     assert metrics["n_flagged_rows"] > 0, "no (table, _row_id) pairs were parsed"
+
+
+def test_submission_references_real_rows(metrics: dict) -> None:
+    """Even an otherwise passing audit must identify existing source records."""
+    assert metrics["submission_valid"], metrics["reference_error"] or "invalid submission"
 
 
 def test_no_error_cluster_missed(metrics: dict) -> None:

@@ -1,3 +1,32 @@
+## Healthcare Agent Environment take home
+
+This branch contains Sanchita's take-home improvement for
+`ehr_data_quality_task_impossible_value`: submitted table and row identifiers
+must exist in a trusted, verifier-owned index of the supplied dataset.
+
+- [Implementation and tradeoffs](tasks/ehr_data_quality_task_impossible_value/README.md#verifier-improvement-row-validity-v1)
+- [Deterministic verifier](tasks/ehr_data_quality_task_impossible_value/tests/scoring.py)
+- [Regression tests](tasks/ehr_data_quality_task_impossible_value/tests/test_scoring_regression.py)
+- [Index generator](tasks/ehr_data_quality_task_impossible_value/authoring/build_row_manifest.py)
+
+To run the 25 local regression tests with Python 3.12, without model credentials
+or Docker:
+
+```bash
+python3.12 -m venv .venv
+source .venv/bin/activate
+python -m pip install pandas==2.2.2 numpy==1.26.4
+python -m unittest discover \
+  -s tasks/ehr_data_quality_task_impossible_value/tests \
+  -p test_scoring_regression.py -v
+```
+
+The reference audit continues to pass. Submissions padded with fabricated IDs
+or unknown table names now fail. Full Harbor container execution remains
+unverified because Docker was unavailable on the development host.
+
+The upstream benchmark documentation follows.
+
 <p align="center">
   <img src="assets/banner.png" alt="HealthAgentBench: 75 tasks, nine categories, six evaluated agents, and 57.3% best task success rate">
 </p>
