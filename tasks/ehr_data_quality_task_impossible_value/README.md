@@ -83,6 +83,65 @@ these results for training. Dataset updates must regenerate and check the index.
 The `row-validity-v1` verifier revision is recorded in task metadata and metrics;
 its rewards should not be pooled silently with earlier runs.
 
+### Why this change and what it proves
+
+I prioritized an exact source-row invariant for this implementation: its intended
+behavior is unambiguous and can be tested without adjudicating clinical ranges
+or assuming that all unlabeled rows are correct. Fabricated rows already reduced
+precision in the baseline and never earned positive credit. An agent that knew
+the required findings could simply omit the fabricated rows. The demonstrated
+defect is acceptance of an invalid audit at full reward, not an easier route to
+discovering the correct findings. This patch makes that reward conditional on
+every finding referring to a real source row; it does not verify clinical reasoning.
+
+Held-out cases would address answer memorization more directly, but require
+validated new data and corruptions. Reward recalibration could address noisy
+audits more directly, but requires better label coverage and a reviewed tradeoff
+between missed errors and false positives. Neither is established by this patch.
+
+### Reproduce the audit
+
+Questions 1 and 2 describe the original scorer at commit
+`6f070d7b7c3380cbdf8a2981febfc1ea2560797a`. The improvement was introduced in
+`26ac4a4f04854f16637a931bf2995513effb7693`. The portable
+[audit script](authoring/reproduce_audit.py) loads that exact baseline with
+`git show`, compares it with the scorer in this checkout, and runs the source-only
+reference solution. It constructs eight probes using developer access to labels
+and records nine before/after cases in [aggregate results](authoring/audit_results.json).
+This establishes evaluator acceptance behavior; it does not demonstrate a
+sandboxed agent reading hidden labels. Temporary submissions and logs are deleted.
+
+From a full Git clone, with Python 3.12, pandas 2.2.2, and NumPy 1.26.4 installed:
+
+```bash
+python tasks/ehr_data_quality_task_impossible_value/authoring/reproduce_audit.py --check
+```
+
+The command verifies all nine cases against the committed results, including
+scorer hashes. To inspect results from a changed verifier, write a separate file
+with `--output /tmp/ehr-audit-results.json` and review differences before updating
+the committed evidence. The script has no developer-specific filesystem paths
+and makes no model or network calls. A shallow clone may need to fetch the
+baseline commit first.
+
+### Next steps before training
+
+1. Run the reference solution and adversarial submissions through Harbor in
+   containers; verify label isolation, writable paths, fresh resets, timeouts,
+   and the final reward emitted by `test.sh`.
+2. Build held-out cases with validated corruptions across patients, tables,
+   units, and error families. Randomize identifiers and row order as secondary
+   defenses. Generate each case with a reproducible seed and a versioned manifest.
+3. Adjudicate label coverage and category eligibility, then calibrate precision
+   penalties against reviewed audits. Keep infrastructure failures separate from
+   agent errors, and log reward components alongside the binary outcome.
+4. Scale case generation and deterministic checks using shared schemas and
+   per-case manifests. Cache trusted indexes by dataset checksum, sample clinical
+   review across case strata, and monitor subgroup errors and reward regressions.
+
+These items are ordered by priority; full container execution is the first
+remaining check.
+
 ### Validation performed
 
 Local validation used Python 3.12 with the verifier image's pinned pandas 2.2.2,

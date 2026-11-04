@@ -8,6 +8,7 @@ must exist in a trusted, verifier-owned index of the supplied dataset.
 - [Deterministic verifier](tasks/ehr_data_quality_task_impossible_value/tests/scoring.py)
 - [Regression tests](tasks/ehr_data_quality_task_impossible_value/tests/test_scoring_regression.py)
 - [Index generator](tasks/ehr_data_quality_task_impossible_value/authoring/build_row_manifest.py)
+- [Reproducible before and after audit](tasks/ehr_data_quality_task_impossible_value/README.md#reproduce-the-audit)
 
 To run the 25 local regression tests with Python 3.12, without model credentials
 or Docker:
@@ -24,6 +25,12 @@ python -m unittest discover \
 The reference audit continues to pass. Submissions padded with fabricated IDs
 or unknown table names now fail. Full Harbor container execution remains
 unverified because Docker was unavailable on the development host.
+
+This enforces source-row existence. Fabricated rows never earned positive credit;
+the patch rejects invalid audits that the original thresholds still accepted.
+It does not prevent memorized valid answers or establish clinical reasoning.
+The task notes distinguish the original baseline from the improvement and explain
+remaining work before training.
 
 The upstream benchmark documentation follows.
 
